@@ -1,4 +1,4 @@
-name: CI/CD Pipeline (Auto Deploy)
+name: CI/CD Pipeline (Auto Deploy with Approval)
 
 on:
   push:
@@ -9,26 +9,27 @@ permissions:
 
 env:
   AWS_REGION: ap-northeast-2
-  #  아까 만든 ECR 리포지토리 이름으로 통일 
-  ECR_REPOSITORY: gitactions
+  ECR_REPOSITORY: jenkins # 혹은 gitactions
   ECR_REGISTRY: 639242342449.dkr.ecr.ap-northeast-2.amazonaws.com
   IMAGE_TAG: v${{ github.run_number }}
 
 jobs:
-  build-and-push:
+  # =========================================================
+  # JOB 1: CI (빌드 및 ECR 푸시) - 무조건 자동 실행
+  # =========================================================
+  ci-build:
     runs-on: ubuntu-latest
     steps:
     - name: Checkout code
       uses: actions/checkout@v3
 
-    # Java 17 세팅 추가 (빌드 안정성 확보)
     - name: Set up JDK 17
       uses: actions/setup-java@v3
       with:
         java-version: '17'
         distribution: 'temurin'
 
-    # AWS 로그인
+    # AWS 로그인 및 ECR 푸시 (기존 코드와 동일)
     - name: Configure AWS and Login to ECR
       uses: aws-actions/configure-aws-credentials@v4
       with:
@@ -36,34 +37,73 @@ jobs:
         aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
         aws-region: ${{ env.AWS_REGION }}
     - uses: aws-actions/amazon-ecr-login@v2
-
-    # 1. 빌드 및 ECR 업로드
-    - name: Build, tag, and push image to Amazon ECR
+    
+    - name: Build and Push to ECR
       run: |
         chmod +x mvnw
         ./mvnw clean package -DskipTests
-
         docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
         docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
-
-        # latest 태그 업데이트
         docker tag $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG $ECR_REGISTRY/$ECR_REPOSITORY:latest
         docker push $ECR_REGISTRY/$ECR_REPOSITORY:latest
 
-    # 2. K8s YAML 파일 수정
-    - name: Update Deployment YAML with new image tag
+    # [슬랙 알림] 빌드 끝났으니 승인해달라고 요청
+    - name: Notify Slack for Approval
+      uses: 8398a7/action-slack@v3
+      with:
+        status: custom
+        fields: repo,message,commit,author,action,eventName,ref,workflow
+        custom_payload: |
+          {
+            "text": "🚀 *빌드(CI) 성공! 배포 승인이 필요합니다.*",
+            "attachments": [{
+              "color": "warning",
+              "fields": [
+                { "title": "Repo", "value": "${{ github.repository }}", "short": true },
+                { "title": "Version", "value": "${{ env.IMAGE_TAG }}", "short": true }
+              ],
+              "actions": [{
+                "type": "button",
+                "text": "배포 승인하러 가기",
+                "url": "https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+              }]
+            }]
+          }
+      env:
+        SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+
+  # =========================================================
+  # JOB 2: CD (Manifest 수정) - 승인(Approval)이 있어야 실행됨
+  # =========================================================
+  cd-deploy:
+    needs: ci-build            # 1번 Job이 성공해야 실행됨
+    runs-on: ubuntu-latest
+    environment: production    # 👈 [핵심] 아까 만든 환경 이름! (승인 없으면 여기서 멈춤)
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+
+    - name: Update Deployment YAML
       run: |
         WAS_YAML_PATH="k8s/was-deployment.yaml"
-
-        # sed 패턴 변경: 기존 이름이 뭐든 간에 ECR 주소 라인을 통째로 교체
         sed -i "s|image: .*dkr.ecr.*|image: $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG|g" $WAS_YAML_PATH
-
-        # 확인
         cat $WAS_YAML_PATH
 
-    # 3. Git 커밋 & 푸시
-    - name: Commit and Push Updated YAML
+    - name: Commit and Push
       uses: EndBug/add-and-commit@v9
       with:
         message: 'GitOps: Deploy new image version ${{ env.IMAGE_TAG }}'
-        add: 'k8s/was-deployment.yaml' 
+        add: 'k8s/was-deployment.yaml'
+
+    # [슬랙 알림] 배포 완료 메시지
+    - name: Notify Slack Deployment Finish
+      uses: 8398a7/action-slack@v3
+      with:
+        status: custom
+        custom_payload: |
+          {
+            "text": "✅ *배포(CD) 완료! ArgoCD가 곧 동기화합니다.*"
+          }
+      env:
+        SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
