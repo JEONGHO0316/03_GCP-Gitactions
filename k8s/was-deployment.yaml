@@ -20,7 +20,7 @@ spec:
       - name: petclinic
         # 업로드한 WAS 이미지 사용 
         # Google repo 사용 
-        image: asia-northeast3-docker.pkg.dev/kdt2-final-project-t1/gitactions-hjh/was:v3
+        image: asia-northeast3-docker.pkg.dev/kdt2-final-project-t1/gitactions-hjh/gitactions:v1.0.5
         imagePullPolicy: Always
         ports:
         - containerPort: 8080
