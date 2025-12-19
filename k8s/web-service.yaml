@@ -5,12 +5,12 @@ metadata:
   name: petclinic-web-service
   namespace: petclinic
   annotations:
-    service.beta.kubernetes.io/aws-load-balancer-type: "alb"  # 또는 ALB 사용
+   cloud.google.com/neg: '{"ingress": true}'
+
 spec:
   type: ClusterIP # ingress 사용 하니까 ClusterIP로 변경
   selector:
     app: petclinic-web
-    tier: frontend
   ports:
   - protocol: TCP
     port: 80

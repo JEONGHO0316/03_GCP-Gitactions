@@ -19,7 +19,8 @@ spec:
       containers:
       - name: petclinic
         # 업로드한 WAS 이미지 사용 
-        image: 639242342449.dkr.ecr.ap-northeast-2.amazonaws.com/gitactions:v26
+        # Google repo 사용 
+        image: asia-northeast3-docker.pkg.dev/kdt2-final-project-t1/gitactions-hjh/was:v2
         imagePullPolicy: Always
         ports:
         - containerPort: 8080

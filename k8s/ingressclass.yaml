@@ -2,6 +2,6 @@
 apiVersion: networking.k8s.io/v1
 kind: IngressClass
 metadata:
-  name: alb
+  name: gce
 spec:
-  controller: ingress.k8s.aws/alb
+  controller: k8s.io/ingress-gce
